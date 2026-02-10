@@ -20,6 +20,13 @@ pipeline {
       }
     }
 
+    stage('Info') {
+      steps {
+        sh 'echo Job: ${env.JOB_NAME}'
+        sh 'echo Job: ${env.BUILD_NUMBER}'
+      }
+    }
+
     stage('Test') {
       agent {
         docker {
