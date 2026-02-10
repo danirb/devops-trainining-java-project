@@ -1,128 +1,91 @@
 #!groovy
 
-//@Library('functions')_
-
 pipeline {
-	agent any // Default Agent
+  agent any
 
   environment {
-	  DOCKERHUB_CREDENTIALS=credentials('dockerhub')
-    TAG_NAME="1.0.4-SNAPSHOT"//getLastGitTag()
-    SONARQUBE_HOST_LOCAL="${env.SONARQUBE_HOST}"
-	}
+    DOCKERHUB_CREDENTIALS = credentials('dockerhub')
+    SONARQUBE_TOKEN = credentials('sonarqube-token')
+    TAG_NAME = '1.0.4-SNAPSHOT'
+    SONARQUBE_HOST_LOCAL = "${env.SONARQUBE_HOST}"
+    DOCKER_IMAGE = 'scalian_training/java-app'
+    DOCKER_REGISTRY_IMAGE = 'adrianscalian/scalian_training_java-app'
+    MAVEN_IMAGE = 'maven:3.8.6-openjdk-11-slim'
+  }
 
   stages {
-
     stage('List env vars') {
-      steps{
-				sh "printenv | sort"
-			}
+      steps {
+        sh 'printenv | sort'
+      }
     }
 
     stage('Test') {
-      // Specifies where the entire Pipeline, or a specific stage, will execute in the Jenkins environment depending on where the agent section is placed
-    	agent {
-      	docker {
-        	image 'maven:3.8.6-openjdk-11-slim'
+      agent {
+        docker {
+          image "${env.MAVEN_IMAGE}"
         }
       }
       steps {
-      	sh 'mvn test'
+        sh 'mvn test'
       }
     }
 
     stage('SonarQube') {
-      // Specifies where the entire Pipeline, or a specific stage, will execute in the Jenkins environment depending on where the agent section is placed
-    	agent {
-      	docker {
-        	image 'maven:3.8.6-openjdk-11-slim'
+      agent {
+        docker {
+          image "${env.MAVEN_IMAGE}"
         }
       }
       steps {
-        //sh 'echo "SONAR HOME: ${env.SONARQUBE_HOST}"'
-        sh 'mvn verify sonar:sonar -Dsonar.projectKey=java-example-jenkins -Dsonar.host.url="${SONARQUBE_HOST_LOCAL}" -Dsonar.login=sqa_3dd5dd29c9a7d0876fdfe877df1a81ab54b43358'
+        sh """
+          mvn verify sonar:sonar \
+            -Dsonar.projectKey=java-example-jenkins \
+            -Dsonar.host.url="${SONARQUBE_HOST_LOCAL}" \
+            -Dsonar.login="${SONARQUBE_TOKEN}"
+        """
       }
     }
-
 
     stage('Maven Install') {
-      // Specifies where the entire Pipeline, or a specific stage, will execute in the Jenkins environment depending on where the agent section is placed
-    	agent {
-      	docker {
-        	image 'maven:3.8.6-openjdk-11-slim'
+      agent {
+        docker {
+          image "${env.MAVEN_IMAGE}"
         }
       }
       steps {
-      	sh 'mvn clean install -DskipTests'
+        sh 'mvn clean install -DskipTests'
       }
     }
-
 
     stage('Docker Build') {
       steps {
         sh 'ls $WORKSPACE/target/'
-      	sh 'docker build -t scalian_training/java-app -f devops/Dockerfile --build-arg VERSION=$TAG_NAME .'
+        sh """
+          docker build -t ${DOCKER_IMAGE} \
+            -f devops/Dockerfile \
+            --build-arg VERSION=${TAG_NAME} \
+            .
+        """
       }
     }
-
-
-
-    // // stage('Testing') {
-    // //   steps {
-    // //     // Block of scripted pipeline
-    // //     script {
-    // //       sh 'docker run -d --rm -p 40084:8080  --name java-app   scalian_training/java-app'
-    // //       final def (String response, int code) =
-    // //         sh(script: "curl -s -w '\\n%{response_code}'  localhost:40084/hello", returnStdout: true)
-    // //             .trim()
-    // //             .tokenize("\n")
-    // //       sh 'docker stop java-app'
-    // //       if (code != 200 && code != 201) {
-    // //           error("Testing ERROR. Returned status code = $status when calling $url")
-    // //       }
-    // //       echo("Testing Result: $response")
-    // //     }
-    // //   }
-    // // }
-
 
     stage('Docker Push') {
       steps {
         sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
-      	sh 'docker tag scalian_training/java-app adrianscalian/scalian_training_java-app:$TAG_NAME'
-        sh 'docker push adrianscalian/scalian_training_java-app:$TAG_NAME'
+        sh "docker tag ${DOCKER_IMAGE} ${DOCKER_REGISTRY_IMAGE}:${TAG_NAME}"
+        sh "docker push ${DOCKER_REGISTRY_IMAGE}:${TAG_NAME}"
       }
     }
-
-    // // stage('Deploy') {
-    // // 	when {
-    // //     tag 'release-*'
-    // //   }
-    // //   steps {
-    // //   	echo "Deploying $TAG_NAME"
-    // //   }
-    // // }
   }
 
   post {
-    always  {
+    always {
       sh 'docker logout'
-      
     }
     success {
-      // send mail
-      echo "SUCCESS"
+      echo 'SUCCESS'
       archiveArtifacts artifacts: 'target/*.jar'
     }
   }
-  
-}
-
-
-def getLastGitTag() {
-    sh "git tag --sort version:refname | head -n 1 > version.tmp"
-    String tag = readFile 'version.tmp'
-    echo "Branch: ${scm.branches[0].name}"
-    echo "Tag, ${tag}." 
-    return tag
 }
