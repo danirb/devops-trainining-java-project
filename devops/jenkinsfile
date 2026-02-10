@@ -16,7 +16,12 @@ pipeline {
         }
       }
       steps {
-        sh 'mvn install'
+        sh '''
+            mvn install
+            apt-get update
+            apt-get install -y make
+            make lint
+        '''
       }
     }
     stage('CI - Lint') {
